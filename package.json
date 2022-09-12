@@ -1,0 +1,23 @@
+{
+  "name": "homebridge-thermotec",
+  "version": "1.0.0",
+  "description": "",
+  "keywords": [
+    "homebridge-plugin",
+    "electrorad",
+    "aeroflow"
+  ],
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "npm link && nodemon --exec /usr/local/lib/node_modules/homebridge/bin/homebridge"
+  },
+  "engines": {
+    "homebridge": ">=1.0.0"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "nodemon": "^2.0.19"
+  }
+}
