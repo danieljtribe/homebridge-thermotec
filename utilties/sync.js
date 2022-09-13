@@ -1,4 +1,6 @@
 const { sendRequest } = require('../comms/udp.js');
+var Mutex = require('async-mutex').Mutex;
+const mutex = new Mutex();
 
 async function getConfiguration(host, port) {
     try {
@@ -6,20 +8,25 @@ async function getConfiguration(host, port) {
             "general": await sendRequest(host, port, "OPS1", 1, 5),
             "zones": await processZoneModuleResponse(await sendRequest(host, port, "OPS2", 1, 5), await sendRequest(host, port, "OPS3", 1, 5))
         };
-
         return configuration;
     } catch(e) {
+        console.log(e);
         console.error("Unable to get configuration.");
+        return {};
     }
 }
 
 async function getTemperaturesForZone(host, port, zoneId) {
     try {
-       const status = await sendRequest(host, port, `R#${zoneId}#1#0#0*?T`, 1, 30);
-       return {
-            'current': routeToHalf(parseFloat(`${status[0]}.${status[1]}`)),
-            'target': parseFloat(`${convertValues(status[2])}`)
-       }
+       return await mutex.runExclusive(async () => {
+            const status = await sendRequest(host, port, `R#${zoneId}#1#0#0*?T`, 1, 30);
+            currentTemp = routeToHalf(parseFloat(`${status[0]}.${status[1]}`));
+            targetTemp = parseFloat(`${convertValues(status[2])}`);
+            return {
+                currentTemp: currentTemp >= 10 ? currentTemp : 10.0,
+                targetTemp: targetTemp >= 10 ? targetTemp : 10.0
+           }
+       });
     } catch(e) {
         console.error(`Unable to communicate with modules in zone ${zoneId}`, e);
         return {
@@ -31,11 +38,13 @@ async function getTemperaturesForZone(host, port, zoneId) {
 
 async function setTemperaturesForZone(host, port, zoneId, numberOfModules, temperatureCelcius) {
     try {
-        if(temperatureCelcius != Math.floor(temperatureCelcius)) {
-            // x.5
-            temperatureCelcius = Math.floor(temperatureCelcius) + 128
-        }
-       return await sendRequest(host, port, `D#${zoneId}#${numberOfModules}#0#0*T${temperatureCelcius}`, 1, 30)
+        return await mutex.runExclusive(async () => {
+            if(temperatureCelcius != Math.floor(temperatureCelcius)) {
+                // x.5
+                temperatureCelcius = Math.floor(temperatureCelcius) + 128
+            }
+            return await sendRequest(host, port, `D#${zoneId}#${numberOfModules}#0#0*T${temperatureCelcius}`, 1, 30)
+        });
     } catch(e) {
         console.error(`Unable to communicate with all modules in zone ${zoneId}`, e);
         return null;
@@ -66,4 +75,4 @@ async function processZoneModuleResponse(zones, modules) {
     }
 }
 
-module.exports = { getConfiguration, getTemperaturesForZone  }
+module.exports = { getConfiguration, getTemperaturesForZone, setTemperaturesForZone }

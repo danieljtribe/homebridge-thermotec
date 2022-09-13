@@ -15,7 +15,7 @@ function sendRequest(host, port, messageText, retries=3, timeout=10) {
     });
 
     return new Promise((resolve, reject) => {
-        timer = setTimeout(() => {
+        /*timer = setTimeout(() => {
             retries--;
             if(retries>=0) {
                 console.info("Retry:", retries+1);
@@ -23,10 +23,10 @@ function sendRequest(host, port, messageText, retries=3, timeout=10) {
             } else {
                 reject("TIMED_OUT");
             }
-        }, timeout*1000);
+        }, timeout*1000);*/
 
         client.on('message', function (result, remote) {
-            clearTimeout(timer);
+            //clearTimeout(timer);
             let response = (result.subarray(0, -1).toString('utf8')).split(',');
             console.debug("Received:",response);
             if(response[0] == 'OPOK' || response[0] == 'OK') {

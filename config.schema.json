@@ -1,0 +1,22 @@
+{
+    "pluginAlias": "ThermotecRadiatorControl",
+    "pluginType": "platform",
+    "singular": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "title": "Controller IP address",
+          "type": "string",
+          "required": true,
+          "default": "192.168.1.1"
+        },
+        "region": {
+          "title": "Controller Port Number",
+          "type": "string",
+          "required": true,
+          "default": "6653"
+        }
+      }
+    }
+  }

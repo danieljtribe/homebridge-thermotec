@@ -1,7 +1,7 @@
 const PLUGIN_NAME = "homebridge-thermotec";
 const PLATFORM_NAME = "ThermotecRadiatorControl";
 
-const { getConfiguration, getTemperaturesForZone } = require('./utilties/sync.js');
+const { getConfiguration, getTemperaturesForZone, setTemperaturesForZone } = require('./utilties/sync.js');
 
 module.exports = function(homebridge) {
   homebridge.registerPlatform(PLATFORM_NAME, TControl);
@@ -12,52 +12,29 @@ class TControl {
         this.accessories = [];
         this.log = log;
         this.api = api;
+        this.config = config;
 
-        this.maxTemp = config.maxTemp || 30
-        this.minTemp = config.minTemp || 15
-        this.minStep = config.minStep || 0.5
+        this.Service = this.api.hap.Service;
+        this.Characteristic = this.api.hap.Characteristic;
 
         api.on('didFinishLaunching', async () => {
             log.info(PLATFORM_NAME + " platform 'didFinishLaunching'");
-            this.loadModules(config.host, config.port);
-        });
-    }
 
-    async loadModules(host, port) {
-        getConfiguration(host, port).then(async moduleConfig => {
+            const moduleConfig = await getConfiguration(config.host, config.port);
+
             for(let index = 0; index < Object.keys(moduleConfig.zones.modules).length; index++) {
                 const zone = moduleConfig.zones.modules[Object.keys(moduleConfig.zones.modules)[index]];
+                const zoneId = Object.keys(moduleConfig.zones.modules)[index];
                 if(zone.quantity > 0) {
-                    const uuid = this.api.hap.uuid.generate("Zone " + index);
+                    const uuid = this.api.hap.uuid.generate("Zone " + zoneId);
+                    console.log("Accessory Zone", zoneId, uuid);
 
-                    const accessory = this.accessories.find(accessory => accessory.UUID === uuid);
-
-                    if (!accessory) {
-                        const accessory = new this.api.platformAccessory(`Heating Zone ${index+1}`, uuid);
-                        this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
-                    }
-
-                    let service = accessory.getService(this.api.hap.Service.Thermostat) || accessory.addService(this.api.hap.Service.Thermostat);
-
-                    service.getCharacteristic(this.api.hap.Characteristic.CurrentTemperature).setProps({ minStep: this.minStep, minValue: this.minTemp, maxValue: this.maxTemp });
-                    service.getCharacteristic(this.api.hap.Characteristic.TargetTemperature).setProps({ minStep: this.minStep, minValue: this.minTemp, maxValue: this.maxTemp });
-
-                    service.getCharacteristic(this.api.hap.Characteristic.TargetHeatingCoolingState)
-                    .setProps({
-                        minValue: 0,
-                        maxValue: 1,
-                        validValues: [0,1]
-                    });
-
-                    let temperature = await getTemperaturesForZone(host, port, index+1);
-                    if(!temperature.current || !temperature.target) {
-                        service.updateCharacteristic(this.api.hap.Characteristic.CurrentTemperature, 15.0);
-                        service.updateCharacteristic(this.api.hap.Characteristic.TargetHeatingCoolingState.CurrentHeatingCoolingState, this.api.hap.Characteristic.TargetHeatingCoolingState.CurrentHeatingCoolingState.OFF);
-                    } else {
-                        service.updateCharacteristic(this.api.hap.Characteristic.TargetHeatingCoolingState.CurrentHeatingCoolingState, this.api.hap.Characteristic.TargetHeatingCoolingState.CurrentHeatingCoolingState.HEAT);
-                        service.updateCharacteristic(this.api.hap.Characteristic.TargetTemperature, temperature.target);
-                        service.updateCharacteristic(this.api.hap.Characteristic.CurrentTemperature, temperature.current);
-                    }
+                    let existingAccessory = this.accessories.find(accessory => accessory.UUID === uuid);
+                    const accessory = existingAccessory ? existingAccessory : new this.api.platformAccessory(`Heating Zone ${zoneId}`, uuid);
+                    new TThemrmostat(this, accessory, zoneId, zone.quantity, this.config.host, this.config.port);
+                    if (existingAccessory) continue
+                    this.accessories.push(accessory)
+                    this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
                 }
             }
         });
@@ -65,6 +42,107 @@ class TControl {
 
     configureAccessory(accessory) {
         this.accessories.push(accessory);
+    }
+}
+
+class TThemrmostat {
+    constructor(platform, accessory, zoneId, moduleCount, host, port) {
+        this.platform = platform;
+        this.accessory = accessory;
+        this.zoneId = zoneId;
+        this.moduleCount = moduleCount;
+        this.host = host;
+        this.port = port;
+
+        this.hap = platform.api.hap;
+        this.Service = this.hap.Service;
+        this.Characteristic = this.hap.Characteristic;
+
+        this.lastCurrentTemp = 10.0;
+        this.lastTargetTemp = 10.0;
+
+        this.configureAccessory();
+    }
+
+    async configureAccessory() {
+        this.service = this.accessory.getService(this.Service.Thermostat) || this.accessory.addService(this.Service.Thermostat)
+
+        this.service.getCharacteristic(this.hap.Characteristic.CurrentTemperature)
+        .on('get', async (callback) => {
+            callback(null, this.lastCurrentTemp);
+            try {
+                var current = await getTemperaturesForZone(this.host, this.port, this.zoneId);
+                if(current && current.currentTemp) {
+                    this.lastCurrentTemp = current.currentTemp;
+                    this.lastTargetTemp = current.targetTemp;
+                    this.service.getCharacteristic(this.hap.Characteristic.CurrentTemperature).updateValue(current.currentTemp);
+                    this.service.getCharacteristic(this.hap.Characteristic.TargetTemperature).updateValue(current.targetTemp);
+                }
+            } catch(e) {
+                console.error(e);
+            }
+        })
+
+        this.service.getCharacteristic(this.hap.Characteristic.TargetTemperature)
+        .on('get', async (callback) => {
+            callback(null, this.lastTargetTemp);
+            try {
+                var current = await getTemperaturesForZone(this.host, this.port, this.zoneId);
+                console.log(current);
+                if(current && current.currentTemp) {
+                    this.lastCurrentTemp = current.currentTemp;
+                    this.lastTargetTemp = current.targetTemp;
+                    this.service.getCharacteristic(this.hap.Characteristic.CurrentTemperature).updateValue(current.currentTemp);
+                    this.service.getCharacteristic(this.hap.Characteristic.TargetTemperature).updateValue(current.targetTemp);
+
+                    if(this.lastCurrentTemp < this.lastTargetTemp) {
+                        this.service.getCharacteristic(this.hap.Characteristic.CurrentHeatingCoolingState).updateValue(this.Characteristic.CurrentHeatingCoolingState.HEAT);
+                    } else {
+                        this.service.getCharacteristic(this.hap.Characteristic.CurrentHeatingCoolingState).updateValue(this.Characteristic.CurrentHeatingCoolingState.OFF);
+                    }
+                }
+            } catch(e) {
+                console.error(e);
+            }
+        })
+        .on('set', async (value, callback) => {
+            callback(null);
+            try {
+                await setTemperaturesForZone(this.host, this.port, this.zoneId, this.moduleCount, value);
+                this.lastTargetTemp = value;
+
+                if(this.lastCurrentTemp < this.lastTargetTemp) {
+                    this.service.getCharacteristic(this.hap.Characteristic.CurrentHeatingCoolingState).updateValue(this.Characteristic.CurrentHeatingCoolingState.HEAT);
+                } else {
+                    this.service.getCharacteristic(this.hap.Characteristic.CurrentHeatingCoolingState).updateValue(this.Characteristic.CurrentHeatingCoolingState.OFF);
+                }
+            } catch(e) {
+                console.error(e);
+            }
+        });
+
+        this.service.getCharacteristic(this.Characteristic.TemperatureDisplayUnits)
+        .onGet(this.handleTemperatureDisplayUnitsGet.bind(this))
+        .onSet(this.handleTemperatureDisplayUnitsSet.bind(this));
+    }
+
+    /**
+     * Handle requests to get the current value of the "Temperature Display Units" characteristic
+     */
+    handleTemperatureDisplayUnitsGet() {
+        console.debug('Triggered GET TemperatureDisplayUnits');
+
+        // set this to a valid value for TemperatureDisplayUnits
+        const currentValue = this.Characteristic.TemperatureDisplayUnits.CELSIUS;
+
+        return currentValue;
+    }
+
+    /**
+     * Handle requests to set the "Temperature Display Units" characteristic
+     */
+    handleTemperatureDisplayUnitsSet(value) {
+        console.debug('Triggered SET TemperatureDisplayUnits:', value);
     }
 
     async setTargetTemperature(targetTemperature, callback) {
