@@ -20,7 +20,7 @@ async function getTemperaturesForZone(host, port, zoneId) {
     try {
        return await mutex.runExclusive(async () => {
             const status = await sendRequest(host, port, `R#${zoneId}#1#0#0*?T`, 1, 30);
-            currentTemp = routeToHalf(parseFloat(`${status[0]}.${status[1]}`));
+            currentTemp = parseFloat(`${status[0]}.${parseInt(status[1], 10)*10}`);
             targetTemp = parseFloat(`${convertValues(status[2])}`);
             return {
                 currentTemp: currentTemp >= 10 ? currentTemp : 10.0,

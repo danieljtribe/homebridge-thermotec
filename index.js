@@ -31,6 +31,12 @@ class TControl {
 
                     let existingAccessory = this.accessories.find(accessory => accessory.UUID === uuid);
                     const accessory = existingAccessory ? existingAccessory : new this.api.platformAccessory(`Heating Zone ${zoneId}`, uuid);
+
+                    accessory.getService(this.Service.AccessoryInformation)
+                        .setCharacteristic(this.Characteristic.Manufacturer, 'Thermotec')
+                        .setCharacteristic(this.Characteristic.Model, 'AreoFlow')
+                        .setCharacteristic(this.Characteristic.SerialNumber, `zone${zoneId}`);
+
                     new TThemrmostat(this, accessory, zoneId, zone.quantity, this.config.host, this.config.port);
                     if (existingAccessory) continue
                     this.accessories.push(accessory)
